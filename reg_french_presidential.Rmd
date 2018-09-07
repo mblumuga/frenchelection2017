@@ -1,0 +1,26 @@
+---
+title: "Regression_French_Presidential_2017"
+author: "Michael Blum"
+date: "07/09/2018"
+output: html_document
+---
+
+## Read the datasets 
+
+I downloaded 2 open datasets. 
+
+The [first data set](https://www.data.gouv.fr/fr/datasets/election-presidentielle-des-23-avril-et-7-mai-2017-resultats-du-2eme-tour-2/) is available on the French open data website. It put a csv version of the data file on github. It contains the result of the French presidential election. Let us read the data file and then keep only relevant information, which is city (commune in French), the score of Emmanuel Macron and the score of Marine Le Pen.
+
+```{r}
+score <- read.csv(file = "data/Presidentielle_2017_Resultats_Communes_Tour_2.csv", sep = ";")
+# Keep only the sity name, the score of Macron and the score of Le Pen
+score <- score[, c("Libellé.de.la.commune", "X..Voix.Exp", "X..Voix.Exp.1")]
+# Change the column names
+colnames(score) <- c("Commune", "Score_Macron", "Score_LePen")
+head(score)
+```
+
+
+
+
+2nd data set: https://www.data.gouv.fr/fr/datasets/data-insee-sur-les-communes/
