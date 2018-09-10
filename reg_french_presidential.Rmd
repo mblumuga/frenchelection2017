@@ -9,18 +9,72 @@ output: html_document
 
 I downloaded 2 open datasets. 
 
-The [first data set](https://www.data.gouv.fr/fr/datasets/election-presidentielle-des-23-avril-et-7-mai-2017-resultats-du-2eme-tour-2/) is available on the French open data website. It put a csv version of the data file on github. It contains the result of the French presidential election. Let us read the data file and then keep only relevant information, which is city (commune in French), the score of Emmanuel Macron and the score of Marine Le Pen.
+The [first data set](https://www.data.gouv.fr/fr/datasets/election-presidentielle-des-23-avril-et-7-mai-2017-resultats-du-2eme-tour-2/) is available on the [data.gouv.fr](data.gouv.fr) website. I put a csv version of the data file on github. It contains the result of the French presidential election. Let us read the data file and then keep only relevant information, which is city (commune in French), the score of Emmanuel Macron and the score of Marine Le Pen.
 
 ```{r}
-score <- read.csv(file = "data/Presidentielle_2017_Resultats_Communes_Tour_2.csv", sep = ";")
-# Keep only the sity name, the score of Macron and the score of Le Pen
-score <- score[, c("Libellé.de.la.commune", "X..Voix.Exp", "X..Voix.Exp.1")]
+require(magrittr)
+require(dplyr)
+require(tidyr)
+
+score <- read.csv(file = "data/Presidentielle_2017_Resultats_Communes_Tour_2.csv", sep = ";",dec=",")
+```
+
+I then perform some technical operations not displayed here to compute a city code (CODGEO) for each city.
+
+```{r,echo=F,eval=T}
+nonmetro<- (score[,1]=="ZX") | (score[,1]=="ZW") | (score[,1]=="ZP") | (score[,1]=="ZN") | (score[,1]=="ZS")| (score[,1]=="ZM") | (score[,1]=="ZD") | (score[,1]=="ZC") | (score[,1]=="ZB") | (score[,1]=="ZA")
+score[,1] <- as.character(score[,1])
+score[nonmetro,1] <- "97"
+#aux <- paste(sprintf('%02d',score[,1]),sprintf('%03d',score[,3]),sep="")
+aux <- paste(sprintf('%02s',score[,1]),sprintf('%03s',score[,3]),sep="")
+#score <- cbind(CODGEO=as.character(aux),score)
+#sapply(score[,1],FUN=function(x){is.na(as.numeric})
+score<- score %>%
+  mutate(CODGEO=aux)
+```
+
+Then, we we keep only the city name, the geocode, the score of Macron and the score of Le Pen
+```{r}
+score <- score %>%
+  select(CODGEO,Libellé.de.la.commune,X..Voix.Exp,X..Voix.Exp.1) %>%
+  rename(Commune = Libellé.de.la.commune,Score_Macron = X..Voix.Exp,Score_LePen=X..Voix.Exp.1) %>%
+  mutate_at(c("Score_Macron","Score_LePen"), funs(as.numeric(.)))
+#score[, c("Libellé.de.la.commune", "X..Voix.Exp", "X..Voix.Exp.1")]
 # Change the column names
-colnames(score) <- c("Commune", "Score_Macron", "Score_LePen")
+#colnames(score) <- c("Commune", "Score_Macron", "Score_LePen")
 head(score)
 ```
 
+The second data set, also available on [data.gouv.fr](data.gouv.fr), contains various socio-economic data for each French city (commune). Again I put a csv version of the data file on github. I remove geographical variable (number of the department) to keep only socio-economic data.
 
+```{r}
+socio <- read.csv(file = "data/MDB-INSEE.csv", sep = ";",,dec=",")
 
+# Encode as factors all categorical variables and remove geographical info
+labels <- c("Orientation.Economique", "SEG.Croissance.POP", "Urbanité.Ruralité", "Dynamique.Démographique.BV", "SEG.Environnement.Démographique.Obsolète", "Environnement.Démographique", "Fidélité", "SYN.MEDICAL", "Seg.Cap.Fiscale", "Seg.Dyn.Entre", "DYN.SetC")
+socio <- socio %>%
+  mutate_at(labels, funs(factor(.))) %>%
+  mutate_at("CODGEO", as.character) %>%
+  select("CODGEO", everything()) %>%
+  select(-one_of("DEP","LIBGEO","CP")) 
+  #select(-one_of(c("CODGEO", "DEP"))) 
 
-2nd data set: https://www.data.gouv.fr/fr/datasets/data-insee-sur-les-communes/
+```
+
+```{r}
+aux <- score %>%
+  inner_join(socio, by = "CODGEO") %>%
+  drop_na()
+
+aux2 <- aux[,-c(1:4,17)]
+aux$Score_LePen[aux$Score_LePen==100]<-99.9
+aux$Score_LePen[aux$Score_LePen==0]<-0.1
+aux2 <- cbind(ans = qnorm(aux$Score_LePen/100),aux2)
+myfit <- lm(ans ~ ., data=aux2)
+cor(aux$Score_LePen,pnorm(myfit$fitted.values)*100)^2
+require(ranger)
+myfit2 <- ranger(ans ~ ., data=aux2,importance = 'impurity')
+cor(aux$Score_LePen,pnorm(myfit2$predictions)*100)^2
+
+```
+
