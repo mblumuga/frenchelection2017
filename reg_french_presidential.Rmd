@@ -58,6 +58,23 @@ socio <- socio %>%
   select("CODGEO", everything()) %>%
   select(-one_of("DEP","LIBGEO","CP")) 
   #select(-one_of(c("CODGEO", "DEP"))) 
+require(magrittr)
+require(tidyr)
+require(dplyr)
+
+#xxx <- socio %>%
+# mutate_if(.,startsWith(names(.),"Nb"), funs(./socio$Population))# %>%
+#  divide_by(socio$Population)
+
+
+  #modify names of variables
+  nm<-sub("^Nb","Prop",names(socio))  
+  for (i in which(startsWith(names(socio),"Nb")))
+    socio[[i]] <- socio[[i]]/socio$Population
+  names(socio)<-nm
+
+
+
 
 ```
 
@@ -72,9 +89,24 @@ aux$Score_LePen[aux$Score_LePen==0]<-0.1
 aux2 <- cbind(ans = qnorm(aux$Score_LePen/100),aux2)
 myfit <- lm(ans ~ ., data=aux2)
 cor(aux$Score_LePen,pnorm(myfit$fitted.values)*100)^2
+plot(aux$Score_LePen,pnorm(myfit$fitted.values)*100,pch=20,cex=.3);abline(0,1)
+
 require(ranger)
 myfit2 <- ranger(ans ~ ., data=aux2,importance = 'impurity')
 cor(aux$Score_LePen,pnorm(myfit2$predictions)*100)^2
-
+plot(aux$Score_LePen,pnorm(myfit2$predictions)*100,pch=20,cex=.3);abline(0,1)
+varImp(myfit2)
+```
+```{r}
+require(ggplot2)
+require(ggrepel)
+df <- data.frame(score = aux$Score_LePen, predicted = pnorm(myfit2$predictions) * 100, pop = aux$Population, names = ifelse(aux$Population>100000,as.character(aux$Commune),NA)) %>%
+  subset(pop>5000)
+  
+ggplot(df, aes(x = score, y = (predicted-score)/score, label = names)) +
+  geom_point(data = subset(df, pop < 100000), alpha=0.6, color ="grey") +
+  geom_point(data = subset(df, pop >= 100000), alpha = 1, color ="red") +
+  geom_abline(slope=0,intercept=0) +
+  geom_text_repel()
 ```
 
