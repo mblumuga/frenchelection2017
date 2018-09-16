@@ -4,44 +4,46 @@ author: "Michael Blum"
 date: "07/09/2018"
 output: html_document
 ---
+The objective of the following analysis is to show that insights can be gained from poor machine learning predictions. Typically, machine learners seek to tune learning machines in order to maximize classification or regression criteria. That is a desirable objective when proving black box ML algorithms. However, when running ML algorithms, some valuable information might be extracted by looking at points where prediction accuracy is the lowest.
+
+To make my point, I analyse results of the second round of French presidential 2017 election. During the final round of French presidential election, Marine Le Pen faces Emmanuel Macron. This can be viewed as a French version of the duel between Donald Trump and Hillary Clinton where Le Pen was playing the role of Trump and Macron playing the role of Clinton. 
+
+In the following, I investigate to what extent the result of the French presidential election is determined by socio-economic variables. As stated in the introduction, I am looking for variables or regions where predictions of scores based on socio-economic variables are the worse. These cities or regions should be the destination of politics for meetings if they want to improve their global score during the next elections.
+
+All statistical analyses are performed in R.
+```{r}
+require(tidyverse)
+require(ranger)
+require(maptools)
+#require(rgdal)
+```
 
 ## Read the datasets 
 
-I downloaded 2 open datasets. 
-
-The [first data set](https://www.data.gouv.fr/fr/datasets/election-presidentielle-des-23-avril-et-7-mai-2017-resultats-du-2eme-tour-2/) is available on the [data.gouv.fr](data.gouv.fr) website. I put a csv version of the data file on github. It contains the result of the French presidential election. Let us read the data file and then keep only relevant information, which is city (commune in French), the score of Emmanuel Macron and the score of Marine Le Pen.
+To start withn, I downloaded the [first data set](https://www.data.gouv.fr/fr/datasets/election-presidentielle-des-23-avril-et-7-mai-2017-resultats-du-2eme-tour-2/) that contains the result of French presidential elections and that is available on the [data.gouv.fr](data.gouv.fr) website. I put a csv version of the data file on github.
 
 ```{r}
-require(magrittr)
-require(dplyr)
-require(tidyr)
-
 score <- read.csv(file = "data/Presidentielle_2017_Resultats_Communes_Tour_2.csv", sep = ";",dec=",")
 ```
 
-I then perform some technical operations not displayed here to compute a city code (CODGEO) for each city.
+I then perform some technical operations not displayed here to compute a city code (called CODGEO) for each city that will be used when merging the 2 different datasets.
 
 ```{r,echo=F,eval=T}
 nonmetro<- (score[,1]=="ZX") | (score[,1]=="ZW") | (score[,1]=="ZP") | (score[,1]=="ZN") | (score[,1]=="ZS")| (score[,1]=="ZM") | (score[,1]=="ZD") | (score[,1]=="ZC") | (score[,1]=="ZB") | (score[,1]=="ZA")
 score[,1] <- as.character(score[,1])
 score[nonmetro,1] <- "97"
-#aux <- paste(sprintf('%02d',score[,1]),sprintf('%03d',score[,3]),sep="")
-aux <- paste(sprintf('%02s',score[,1]),sprintf('%03s',score[,3]),sep="")
-#score <- cbind(CODGEO=as.character(aux),score)
-#sapply(score[,1],FUN=function(x){is.na(as.numeric})
 score<- score %>%
-  mutate(CODGEO=aux)
+  mutate(CODGEO=paste(sprintf('%02s',score[,1]),sprintf('%03s',score[,3]),sep=""))
 ```
 
-Then, we we keep only the city name, the geocode, the score of Macron and the score of Le Pen
+We then keep only relevant information, which is city (commune in French), the score of Emmanuel Macron and the score of Marine Le Pen. I use tidyverse tools to manipulate datafiles.
+
+
 ```{r}
 score <- score %>%
   select(CODGEO,Libellé.de.la.commune,X..Voix.Exp,X..Voix.Exp.1) %>%
   rename(Commune = Libellé.de.la.commune,Score_Macron = X..Voix.Exp,Score_LePen=X..Voix.Exp.1) %>%
   mutate_at(c("Score_Macron","Score_LePen"), funs(as.numeric(.)))
-#score[, c("Libellé.de.la.commune", "X..Voix.Exp", "X..Voix.Exp.1")]
-# Change the column names
-#colnames(score) <- c("Commune", "Score_Macron", "Score_LePen")
 head(score)
 ```
 
@@ -50,63 +52,79 @@ The second data set, also available on [data.gouv.fr](data.gouv.fr), contains va
 ```{r}
 socio <- read.csv(file = "data/MDB-INSEE.csv", sep = ";",,dec=",")
 
-# Encode as factors all categorical variables and remove geographical info
+# Encode as factors all categorical variables and remove geographical information
 labels <- c("Orientation.Economique", "SEG.Croissance.POP", "Urbanité.Ruralité", "Dynamique.Démographique.BV", "SEG.Environnement.Démographique.Obsolète", "Environnement.Démographique", "Fidélité", "SYN.MEDICAL", "Seg.Cap.Fiscale", "Seg.Dyn.Entre", "DYN.SetC")
 socio <- socio %>%
   mutate_at(labels, funs(factor(.))) %>%
   mutate_at("CODGEO", as.character) %>%
   select("CODGEO", everything()) %>%
-  select(-one_of("DEP","LIBGEO","CP")) 
-  #select(-one_of(c("CODGEO", "DEP"))) 
-require(magrittr)
-require(tidyr)
-require(dplyr)
+  select(-one_of("LIBGEO","CP")) 
 
-#xxx <- socio %>%
-# mutate_if(.,startsWith(names(.),"Nb"), funs(./socio$Population))# %>%
-#  divide_by(socio$Population)
-
-
-  #modify names of variables
+  #modify names of variables to replace NBsthing by Propsthing
   nm<-sub("^Nb","Prop",names(socio))  
   for (i in which(startsWith(names(socio),"Nb")))
     socio[[i]] <- socio[[i]]/socio$Population
   names(socio)<-nm
-
-
-
-
 ```
 
 ```{r}
-aux <- score %>%
+
+#Merge the 2 data frames using inner_join to make a df containing the score of Le Pen as well as socio-economic varibales
+  score_and_socio <- score %>%
   inner_join(socio, by = "CODGEO") %>%
-  drop_na()
+  drop_na() 
+#Store names of Commune and CODGEO
+  DEP <- score_and_socio$DEP
+  Communes <- score_and_socio$Commune 
+  CODGEO <- score_and_socio$CODGEO
+#Remove geographical information
+  score_and_socio <- score_and_socio %>%
+  select(-one_of("CODGEO", "Commune", "Score_Macron", "REG","DEP")) # Remove geographical information
 
-aux2 <- aux[,-c(1:4,17)]
-aux$Score_LePen[aux$Score_LePen==100]<-99.9
-aux$Score_LePen[aux$Score_LePen==0]<-0.1
-aux2 <- cbind(ans = qnorm(aux$Score_LePen/100),aux2)
-myfit <- lm(ans ~ ., data=aux2)
-cor(aux$Score_LePen,pnorm(myfit$fitted.values)*100)^2
-plot(aux$Score_LePen,pnorm(myfit$fitted.values)*100,pch=20,cex=.3);abline(0,1)
+  
+train <- sample(nrow(score_and_socio), 1/2* nrow(score_and_socio))
+fit <- ranger(Score_LePen ~ ., data=score_and_socio[train,])
+predicted<-rep(NA,length=nrow(score_and_socio))
+predicted[-train] <- (predict(fit,data=score_and_socio[-train,])$predictions)
+fit <-ranger(Score_LePen ~ ., data=score_and_socio[-train,])
+predicted[train] <- (predict(fit,data=score_and_socio[train,])$predictions)
+cat("Squared correlation between true and predicted scores: ",cor(aux$Score_LePen,predicted)^2,"\n")
 
-require(ranger)
-myfit2 <- ranger(ans ~ ., data=aux2,importance = 'impurity')
-cor(aux$Score_LePen,pnorm(myfit2$predictions)*100)^2
-plot(aux$Score_LePen,pnorm(myfit2$predictions)*100,pch=20,cex=.3);abline(0,1)
-varImp(myfit2)
 ```
+
 ```{r}
 require(ggplot2)
 require(ggrepel)
-df <- data.frame(score = aux$Score_LePen, predicted = pnorm(myfit2$predictions) * 100, pop = aux$Population, names = ifelse(aux$Population>100000,as.character(aux$Commune),NA)) %>%
+thr<-75000
+df <- data.frame(score = score_and_socio$Score_LePen, predicted = predicted, pop = score_and_socio$Population, names = ifelse(aux$Population>thr,as.character(Communes),NA)) %>%
   subset(pop>5000)
   
-ggplot(df, aes(x = score, y = (predicted-score)/score, label = names)) +
-  geom_point(data = subset(df, pop < 100000), alpha=0.6, color ="grey") +
-  geom_point(data = subset(df, pop >= 100000), alpha = 1, color ="red") +
-  geom_abline(slope=0,intercept=0) +
+ggplot(df, aes(x = score, y = predicted, label = names)) +
+  geom_point(data = subset(df, pop < thr), alpha=0.6, color ="grey") +
+  geom_point(data = subset(df, pop >= thr), alpha = 1, color ="red") +
+  geom_abline(slope=1,intercept=0) +
   geom_text_repel()
+rm(df)
 ```
 
+```{r,echo=F,eval=T}
+#location <- read.csv(file = "data/pop_fr_geoloc_1975_2010.csv", sep = ",", dec = ".")
+
+#location <- location %>%
+#  mutate(CODGEO = paste(sprintf("%02s", location[, "dep"]), sprintf("%03s", location[, "com"]), sep = ""))
+
+
+#aux <- data.frame(CODGEO=aux,pred=predicted)
+
+
+mm <- score_and_socio %>%
+  mutate(pred=predicted)%>%
+  group_by(dep) %>%
+  summarise(mean = weighted.mean((Score_LePen - pred) , w = log(Population))) 
+  mm[order(mm$mean,decreasing=F),]
+  
+#Cartographie avec R Baptiste Coulmont
+  
+  departements <- rgdal::readOGR(dsn="data", layer="DEPARTEMENT")
+  plot(departements)
+```
