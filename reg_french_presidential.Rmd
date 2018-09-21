@@ -1,20 +1,21 @@
 ---
-title: "Regression_French_Presidential_2017"
+title: "Poor machine learning predictions convey information: predicting Le Pen scores at the French presidential election using socio-economic variables "
 author: "Michael Blum"
 date: "07/09/2018"
 output: html_document
 ---
-The objective of the following analysis is to show that insights can be gained from poor machine learning predictions. Typically, machine learners seek to tune learning machines in order to maximize classification or regression criteria. That is a desirable objective when proving black box ML algorithms. However, when running ML algorithms, some valuable information might be extracted by looking at points where prediction accuracy is the lowest.
+The objective of the following analysis is to show that insights can be gained from poor machine learning predictions. Typically, machine learners seek to tune learning machines in order to maximize classification or regression criteria. That is a desirable objective when providing black box ML algorithms. However, when running ML algorithms, valuable information might be extracted by looking at points where prediction accuracy are the lowest. There are outliers because they can not 
 
 To make my point, I analyse results of the second round of French presidential 2017 election. During the final round of French presidential election, Marine Le Pen faces Emmanuel Macron. This can be viewed as a French version of the duel between Donald Trump and Hillary Clinton where Le Pen was playing the role of Trump and Macron playing the role of Clinton. 
 
-In the following, I investigate to what extent the result of the French presidential election is determined by socio-economic variables. As stated in the introduction, I am looking for variables or regions where predictions of scores based on socio-economic variables are the worse. These cities or regions should be the destination of politics for meetings if they want to improve their global score during the next elections.
+In the following, I investigate to what extent the result of the French presidential election is determined by socio-economic variables. As stated in the introduction, I am looking for variables or regions where predictions of scores based on socio-economic variables are the worse. Politics should go to these cities or regions for pre-election meetings if they want to improve their global score during the next election.
 
 All statistical analyses are performed in R.
 ```{r}
 require(tidyverse)
 require(ranger)
 require(maptools)
+require(ggrepel)
 #require(rgdal)
 ```
 
@@ -23,6 +24,7 @@ require(maptools)
 To start withn, I downloaded the [first data set](https://www.data.gouv.fr/fr/datasets/election-presidentielle-des-23-avril-et-7-mai-2017-resultats-du-2eme-tour-2/) that contains the result of French presidential elections and that is available on the [data.gouv.fr](data.gouv.fr) website. I put a csv version of the data file on github.
 
 ```{r}
+#To comlete with github link
 score <- read.csv(file = "data/Presidentielle_2017_Resultats_Communes_Tour_2.csv", sep = ";",dec=",")
 ```
 
@@ -44,36 +46,40 @@ score <- score %>%
   select(CODGEO,Libellé.de.la.commune,X..Voix.Exp,X..Voix.Exp.1) %>%
   rename(Commune = Libellé.de.la.commune,Score_Macron = X..Voix.Exp,Score_LePen=X..Voix.Exp.1) %>%
   mutate_at(c("Score_Macron","Score_LePen"), funs(as.numeric(.)))
-head(score)
 ```
 
-The second data set, also available on [data.gouv.fr](data.gouv.fr), contains various socio-economic data for each French city (commune). Again I put a csv version of the data file on github. I remove geographical variable (number of the department) to keep only socio-economic data.
+The second data set, also available on [data.gouv.fr](data.gouv.fr) (to complete with link), contains various socio-economic data for each French city (commune). Socio-economic variables includes several variables related to taxes, to the density of doctors, of shops, to the proportion of owners, workers... Again I put a csv version of the data file on github. I remove geographical variables (number of the department) to keep only socio-economic data.
 
 ```{r}
-socio <- read.csv(file = "data/MDB-INSEE.csv", sep = ";",,dec=",")
+# to complete with github link
+socio <- read.csv(file = "data/MDB-INSEE.csv", sep = ";", , dec = ",")
 
-# Encode as factors all categorical variables and remove geographical information
+# Encode as factors all categorical variables and remove some geographical information
 labels <- c("Orientation.Economique", "SEG.Croissance.POP", "Urbanité.Ruralité", "Dynamique.Démographique.BV", "SEG.Environnement.Démographique.Obsolète", "Environnement.Démographique", "Fidélité", "SYN.MEDICAL", "Seg.Cap.Fiscale", "Seg.Dyn.Entre", "DYN.SetC")
 socio <- socio %>%
   mutate_at(labels, funs(factor(.))) %>%
   mutate_at("CODGEO", as.character) %>%
   select("CODGEO", everything()) %>%
-  select(-one_of("LIBGEO","CP")) 
+  select(-one_of("LIBGEO", "CP"))
 
-  #modify names of variables to replace NBsthing by Propsthing
-  nm<-sub("^Nb","Prop",names(socio))  
-  for (i in which(startsWith(names(socio),"Nb")))
-    socio[[i]] <- socio[[i]]/socio$Population
-  names(socio)<-nm
+# modify names of variables to replace NBsthing by Propsthing
+nm <- sub("^Nb", "Prop", names(socio))
+
+# compute proportions instead of absolute numbers
+for (i in which(startsWith(names(socio), "Nb")))
+  socio[[i]] <- socio[[i]] / socio$Population
+names(socio) <- nm
 ```
+
+I then merge the two data sets to make a data frame, which contains both the score of Le Pen and socio-economic variables. To train the regression model,  I use random forest where I regress the score of Le Pen on socio-economic variables. To avoid overfitting, I use 2-fold cross-validation where I use one half of the data to train the model and the other half to make predictions, and then I switched the role of the two subsets of the data. 
 
 ```{r}
 
-#Merge the 2 data frames using inner_join to make a df containing the score of Le Pen as well as socio-economic varibales
+#Merge the 2 data frames using inner_join to make a df containing the score of Le Pen as well as socio-economic variables
   score_and_socio <- score %>%
   inner_join(socio, by = "CODGEO") %>%
   drop_na() 
-#Store names of Commune and CODGEO
+#Store DEP, names of Commune and CODGEO
   DEP <- score_and_socio$DEP
   Communes <- score_and_socio$Commune 
   CODGEO <- score_and_socio$CODGEO
@@ -81,50 +87,73 @@ socio <- socio %>%
   score_and_socio <- score_and_socio %>%
   select(-one_of("CODGEO", "Commune", "Score_Macron", "REG","DEP")) # Remove geographical information
 
-  
+#Use random forest to predict scores  
 train <- sample(nrow(score_and_socio), 1/2* nrow(score_and_socio))
 fit <- ranger(Score_LePen ~ ., data=score_and_socio[train,])
 predicted<-rep(NA,length=nrow(score_and_socio))
 predicted[-train] <- (predict(fit,data=score_and_socio[-train,])$predictions)
 fit <-ranger(Score_LePen ~ ., data=score_and_socio[-train,])
 predicted[train] <- (predict(fit,data=score_and_socio[train,])$predictions)
-cat("Squared correlation between true and predicted scores: ",cor(aux$Score_LePen,predicted)^2,"\n")
+cat("Squared correlation between true and predicted scores: ",cor(score_and_socio$Score_LePen,predicted)^2,"\n")
 
 ```
 
+The squared correlation between true and predicted score is of 53%, which is remarkable and shows that socio-economic variables convey information to predict the results of presidential election.
+
+Then, I displayed the predicted scores of Le Pen as a function of the true score.
 ```{r}
-require(ggplot2)
-require(ggrepel)
+
+#Displayed in red city with more that `thr` inhabitants.
+#Cities with less than 5000 inhabitants are discarded
 thr<-75000
-df <- data.frame(score = score_and_socio$Score_LePen, predicted = predicted, pop = score_and_socio$Population, names = ifelse(aux$Population>thr,as.character(Communes),NA)) %>%
+df <- data.frame(score = score_and_socio$Score_LePen, predicted = predicted, pop = score_and_socio$Population, names = ifelse(score_and_socio$Population>thr,as.character(Communes),NA)) %>%
   subset(pop>5000)
   
 ggplot(df, aes(x = score, y = predicted, label = names)) +
+  scale_x_continuous(name="Score of Le Pen") +
+  theme_gray(base_size=15) +
+  scale_y_continuous(name="Predicted score of Le Pen") +
   geom_point(data = subset(df, pop < thr), alpha=0.6, color ="grey") +
   geom_point(data = subset(df, pop >= thr), alpha = 1, color ="red") +
   geom_abline(slope=1,intercept=0) +
-  geom_text_repel()
-rm(df)
+  geom_text_repel(size=3)
+
+#I save a data file with the score of Le Pen, predictions based on socio economic variables and socio-economic variables. Feel free to use it
+score_and_socio %>% 
+  mutate(predicted=predicted) %>%
+  write.csv(file="predictions_presidential2017.csv")
 ```
 
+In the plot, red points correspond to cities with more than 75,000 inhabitants. A striking outlier is Calais where the score is of 57% whereas prediction is much lower and is equal to  43%. Calais jungle, which was a refugee camp, might explain why Calais stands out.
+
+Southern cities such as Nice, Toulon and Perpignan have higher scores than expected based on predicted values. In Toulon, the difference is particularly large with a predicted score of 38% and an actual score of 44%.
+
+I also found interesting that Paris and Versailles have the same predicted score around 16% indicating similar socio-economic background but the actual score in Paris is of 10% whereas it is of 24% in Versailles.
+
+On the opposite direction, Roubaix stands out with a predicted score of 40% but an actual score of 23%. This discrepancy is not observed in Tourcoing, which is next to Roubaix, suprising...
+
+
 ```{r,echo=F,eval=T}
-#location <- read.csv(file = "data/pop_fr_geoloc_1975_2010.csv", sep = ",", dec = ".")
-
-#location <- location %>%
-#  mutate(CODGEO = paste(sprintf("%02s", location[, "dep"]), sprintf("%03s", location[, "com"]), sep = ""))
-
-
-#aux <- data.frame(CODGEO=aux,pred=predicted)
-
 
 mm <- score_and_socio %>%
-  mutate(pred=predicted)%>%
+  mutate(pred = predicted) %>%
+  mutate(dep = DEP) %>%
   group_by(dep) %>%
-  summarise(mean = weighted.mean((Score_LePen - pred) , w = log(Population))) 
-  mm[order(mm$mean,decreasing=F),]
-  
-#Cartographie avec R Baptiste Coulmont
-  
-  departements <- rgdal::readOGR(dsn="data", layer="DEPARTEMENT")
-  plot(departements)
+  summarise(mean = weighted.mean((Score_LePen - pred), w = log(Population)))
+mm[order(mm$mean, decreasing = F), ]
+
+dep <- sf::st_read("data/shapefile/DEPARTEMENT.shp")
+
+gg <- dep %>%
+  mutate(discrete = cut(mm$mean[test], c(-10, seq(-3, 3, by = 1)))) %>%
+  ggplot() +
+  geom_sf(aes(fill = discrete, text = paste("Department:", dep$CODE_DEPT, "<br>", "Excess of votes for Le Pen:", round(mm$mean[test], 2)))) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks = element_blank()
+  ) +
+  scale_fill_brewer(palette = "PuOr", name = "Excess of votes\nfor Le Pen\nw.r.t predictions")
+plotly::ggplotly(gg, tooltip = c("text"))
+
 ```
