@@ -1,5 +1,5 @@
 ---
-title: "Poor machine learning predictions convey information: predicting Le Pen scores at the French presidential election using socio-economic variables "
+title: "Poor machine learning predictions convey information: predicting Le Pen's scores at the French presidential election using socio-economic variables."
 author: "Michael Blum"
 date: "07/09/2018"
 output: html_document
@@ -24,11 +24,10 @@ require(ggrepel)
 To start withn, I downloaded the [first data set](https://www.data.gouv.fr/fr/datasets/election-presidentielle-des-23-avril-et-7-mai-2017-resultats-du-2eme-tour-2/) that contains the result of French presidential elections and that is available on the [data.gouv.fr](data.gouv.fr) website. I put a csv version of the data file on github.
 
 ```{r}
-#To comlete with github link
-score <- read.csv(file = "data/Presidentielle_2017_Resultats_Communes_Tour_2.csv", sep = ";",dec=",")
+score <- read.csv(file = "https://raw.githubusercontent.com/bcm-uga/frenchelection2017/master/data/Presidentielle_2017_Resultats_Communes_Tour_2.csv", sep = ";",dec=",")
 ```
 
-I then perform some technical operations not displayed here to compute a city code (called CODGEO) for each city that will be used when merging the 2 different datasets.
+I then perform some technical operations to compute a city code (called CODGEO) for each city that will be used when merging the 2 different datasets.
 
 ```{r,echo=F,eval=T}
 nonmetro<- (score[,1]=="ZX") | (score[,1]=="ZW") | (score[,1]=="ZP") | (score[,1]=="ZN") | (score[,1]=="ZS")| (score[,1]=="ZM") | (score[,1]=="ZD") | (score[,1]=="ZC") | (score[,1]=="ZB") | (score[,1]=="ZA")
@@ -48,11 +47,11 @@ score <- score %>%
   mutate_at(c("Score_Macron","Score_LePen"), funs(as.numeric(.)))
 ```
 
-The second data set, also available on [data.gouv.fr](data.gouv.fr) (to complete with link), contains various socio-economic data for each French city (commune). Socio-economic variables includes several variables related to taxes, to the density of doctors, of shops, to the proportion of owners, workers... Again I put a csv version of the data file on github. I remove geographical variables (number of the department) to keep only socio-economic data.
+The [second data set](https://www.data.gouv.fr/fr/datasets/data-insee-sur-les-communes/), also available on [data.gouv.fr](data.gouv.fr) (to complete with link), contains various socio-economic data for each French city (commune). Socio-economic variables includes several variables related to taxes, to the density of doctors, of shops, to the proportion of owners, workers... Again I put a csv version of the data file on github. I remove geographical variables (number of the department) to keep only socio-economic data.
 
 ```{r}
 # to complete with github link
-socio <- read.csv(file = "data/MDB-INSEE.csv", sep = ";", , dec = ",")
+socio <- read.csv(file = "https://raw.githubusercontent.com/bcm-uga/frenchelection2017/master/data/MDB-INSEE.csv", sep = ";", , dec = ",")
 
 # Encode as factors all categorical variables and remove some geographical information
 labels <- c("Orientation.Economique", "SEG.Croissance.POP", "Urbanité.Ruralité", "Dynamique.Démographique.BV", "SEG.Environnement.Démographique.Obsolète", "Environnement.Démographique", "Fidélité", "SYN.MEDICAL", "Seg.Cap.Fiscale", "Seg.Dyn.Entre", "DYN.SetC")
@@ -112,7 +111,7 @@ df <- data.frame(score = score_and_socio$Score_LePen, predicted = predicted, pop
 ggplot(df, aes(x = score, y = predicted, label = names)) +
   scale_x_continuous(name="Score of Le Pen") +
   theme_gray(base_size=15) +
-  scale_y_continuous(name="Predicted score of Le Pen") +
+  scale_y_continuous(name="Predicted score of Le Pen", limits = c(10, 60)) +
   geom_point(data = subset(df, pop < thr), alpha=0.6, color ="grey") +
   geom_point(data = subset(df, pop >= thr), alpha = 1, color ="red") +
   geom_abline(slope=1,intercept=0) +
