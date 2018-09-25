@@ -135,37 +135,75 @@ On the opposite direction, Roubaix stands out with a predicted score of 40% but 
 
 I finally decide to average over cities the difference between actual Le Pen's score and predited ones. At the scale of a French departement, this results in a value nales "Excess of votes for Le Pen". I provide a plotly plot to vizualise Excess of votes for Le Pen w.r.t. socio-economic backround.
 
-```{r,echo=F,eval=T}
 
-mm <- score_and_socio %>%
+
+
+
+```{r}
+
+# Average scores within each French dept
+results <- score_and_socio %>%
   mutate(pred = predicted) %>%
   mutate(dep = DEP) %>%
   group_by(dep) %>%
-  summarise(mean = weighted.mean((Score_LePen - pred), w = log(Population)))
-#To see departments with largest discrepancies with expected values
-#mm[order(mm$mean, decreasing = F), ]
+  summarise(diff = weighted.mean((Score_LePen - pred), w = log(Population)))
 
-dep <- sf::st_read("data/shapefile/DEPARTEMENT.shp")
-test<-match(dep$CODE_DEPT,mm$dep)
+# Read a file containing the correspondence between dept number and names
+dep_corres <- read.csv("data/departement.csv", sep = ",", header = F)
+names(dep_corres)[2] <- "dep"
+names(dep_corres)[3] <- "region"
 
-gg <- dep %>%
-  mutate(discrete = cut(mm$mean[test], c(-10, seq(-3, 3, by = 1)))) %>%
-  ggplot() +
-  geom_sf(aes(fill = discrete, text = paste("Department:", dep$CODE_DEPT, "<br>", "Excess of votes for Le Pen:", round(mm$mean[test], 2)))) +
-  theme(
-    axis.text.x = element_blank(),
-    axis.text.y = element_blank(),
-    axis.ticks = element_blank()
+# put dept names within the data file
+results <- inner_join(results, dep_corres)
+
+# Character replacement sequence due to English notation in map. Required to join the tables properly.
+results$region <- stringi::stri_trans_general(results$region, "Latin-ASCII") %>%
+  str_replace_all("Cote-d'or", "Cote-Dor") %>%
+  str_replace_all("Cotes-d'armor", "Cotes-Darmor") %>%
+  str_replace_all("Corse-du-Sud", "Corse du Sud") %>%
+  str_replace_all("Val-d'oise", "Val-Doise") %>%
+  str_replace_all("Corse-du-sud", "Corse du Sud") %>%
+  str_replace_all("Haute-corse", "Haute-Corse") %>%
+  str_replace_all("Ile-et-Vilaine", "Ille-et-Vilaine")
+
+map <- ggplot2::map_data("france")
+
+result_map <- left_join(x = map[, -6], y = results) %>%
+  mutate(bin = cut(diff, c(-10, seq(-3, 3, by = 1)))) %>%
+  filter(complete.cases(.))
+
+map_theme <- theme(
+  legend.title = element_text(size = 8),
+  title = element_text(),
+  plot.title = element_text(margin = margin(20, 20, 20, 20), size = 18, hjust = 0.5),
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank(),
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.background = element_blank(),
+  panel.grid.minor = element_blank(),
+  legend.background = element_rect(fill = alpha("white", 0))
+)
+
+gg <- ggplot(result_map, aes(long, lat, group = group, fill = bin, text = paste("Department:", region, "<br>", "Excess of votes for Le Pen:", round(diff, 2)))) +
+  geom_polygon() +
+  coord_map() +
+  scale_fill_brewer(palette = "PuOr", name = "Excess of votes\nfor Le Pen") +
+  labs(
+    x = "",
+    y = "",
+    subtitle = "Data provided by data.gouv",
+    title = ""
   ) +
-  scale_fill_brewer(palette = "PuOr", name = "Excess of votes\nfor Le Pen\nw.r.t predictions")
-#plotly::ggplotly(gg, tooltip = c("text"))
-plotly::api_create(gg, tooltip = c("text"),filename = "excessvotes_France")
+  map_theme
+# plotly::ggplotly(gg, tooltip = c("text"))
+plotly::api_create(gg, tooltip = c("text"), filename = "excessvotes_presidential2017_France",fileopt = "overwrite", sharing = "public")
 
 ```
+
 The department where excesses of votes for Le Pen are the largest are departments from the South-East (Alpes-Maritimes 06 +2.4%, Var 83 +2.3%, Corse du Sud 2A +2.0%), a department from the Garonne Valley (Tarn-et-Garonne 82 + 2.5%) and 
 Territoire de Belfort (90 +2.2%).
 
-By contrast, the departments where the score of Le Pen are much lower than the predictions based on socio-economic vales are Paris (75, -6.7%), Haut-de-Seine (92? -2.7%), Indre-et-Loire (37, -2.6%), Seine-Saint Denis (93, -2.1%), Hautes-Alpes (-2.0%). It is clear that in and around Paris, Le Pen scores are not as large as they should be and economy is not the sole explanantion.
-
-
-
+By contrast, the departments where the score of Le Pen are much lower than the predictions based on socio-economic vales are Paris (75, -6.7%), Haut-de-Seine (92? -2.7%), Indre-et-Loire (37, -2.6%), Seine-Saint Denis (93, -2.1%), Hautes-Alpes (-2.0%). It is clear that in and around Paris, Le Pen scores are not as large as they should be and economy is not the sole explanation.
